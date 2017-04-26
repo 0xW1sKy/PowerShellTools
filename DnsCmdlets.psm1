@@ -16,7 +16,7 @@ param ( [string]$Machine )
 process{ Write-Output "$([System.Net.Dns]::GetHostEntry("$Machine").HostName)" }
 }
 
-function Get-DnsEntry {
+function Get-DnsHostEntry {
 [CmdletBinding()]
 param ( [string]$Machine )
 process{$([System.Net.Dns]::GetHostEntry("$Machine"))}
