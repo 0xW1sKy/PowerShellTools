@@ -79,6 +79,13 @@ function Get-AWSSSORoleCredential {
         }
     }
 
+    if(!($RefreshAccessToken)){
+        try{
+            $AWSAccounts = Get-SSOAccountList -AccessToken $AccessToken.AccessToken -Credential ([Amazon.Runtime.AnonymousAWSCredentials]::new()) -Region $region
+        }catch{
+            $RefreshAccessToken = $true
+        }
+    }
     if ($RefreshAccessToken) {
 
         $Client = Register-SSOOIDCClient -ClientName $ClientName -ClientType $ClientType -Region $Region -Credential ([Amazon.Runtime.AnonymousAWSCredentials]::new())
@@ -113,10 +120,8 @@ function Get-AWSSSORoleCredential {
         }
         Write-Host "Login Successful. Access Token obtained."
         $AccessToken | ConvertTo-Json | Set-Content $CachePath
-
+        $AWSAccounts = Get-SSOAccountList -AccessToken $AccessToken.AccessToken -Credential ([Amazon.Runtime.AnonymousAWSCredentials]::new()) -Region $region
     }
-
-    $AWSAccounts = Get-SSOAccountList -AccessToken $AccessToken.AccessToken -Credential ([Amazon.Runtime.AnonymousAWSCredentials]::new()) -Region $region
 
     if (!$AccountId) {
         $AccountId = $AWSAccounts | Select-Object -ExpandProperty AccountId
