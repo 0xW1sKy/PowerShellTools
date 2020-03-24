@@ -116,6 +116,9 @@ function Get-AWSSSORoleCredential {
             }
         }
         if (!$AccessToken) {
+            if(($(New-TimeSpan $SSOStart (Get-Date).ToUniversalTime()).TotalSeconds) -ge $timeoutinseconds){
+                throw 'Access Token Request Timed out. Please attempt to run the script again.'
+            }
             throw 'No Access Token obtained.'
         }
         Write-Host "Login Successful. Access Token obtained."
