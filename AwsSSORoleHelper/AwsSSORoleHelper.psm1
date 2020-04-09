@@ -1,59 +1,80 @@
-﻿#Requires -Modules AWSPowerShell 
-<#
-.SYNOPSIS
-This is a simple utility script that allows you to retrieve credentials for AWS accounts that are secured using AWS SSO.  
-Access tokens are cached locally to prevent the need to be pushed to a web browser each time you invoke the script (this is similar behaviour to aws cli v2).
-.DESCRIPTION
-This is a simple utility script that allows you to retrieve credentials for AWS accounts that are secured using AWS SSO.  
-Access tokens are cached locally to prevent the need to be pushed to a web browser each time you invoke the script (this is similar behaviour to aws cli v2).
-Main usability enhancement compared to aws cli 2 is the abillity to retrieve all credentials for all accounts that you have access to.  
-You can optionally specify a rolename with the -RoleName parameter and retrieve all credentials for that rolename across all of your accounts.
-Alternatively you can specify an AccountID by using the -AccountID parameter and retrieve all credentials for that AccountID.
-Additionally, you can use this script to configure all available or explicitly selected credentials into your AWS Credentials store using the -GenerateProfiles switch.
-.EXAMPLE
-    #Generate credential profile for all accounts and role names.
-    Get-AWSSSORoleCredential -StartUrl "https://mycompany.awsapps.com/start" -GenerateProfiles
-.EXAMPLE
-    #Generate credential profile for all accounts where role name is 'My_Role_Name'
-    Get-AWSSSORoleCredential -StartUrl "https://mycompany.awsapps.com/start" -RoleName 'My_Role_Name' -GenerateProfiles
-.EXAMPLE
-    #Get credentials for specific account and rolename, then use those to retrieve S3 bucket.
-    $RoleCredentials = Get-AWSSSORoleCredential -StartUrl "https://mycompany.awsapps.com/start" -AccountID 0123456789 -RoleName S3_Reader -Passthru
-    Get-S3Bucket -AccessKey $RoleCredentials.AccessKey -SecretKey $RoleCredentials.SecretKey -SessionToken $RoleCredentials.SessionToken
-.INPUTS
-    StartUrl (Mandatory)
-.OUTPUTS
-    AccountName, AccountId, RoleName, AccessKey, Expiration, SecretKey, SessionToken
-#>
-function Get-AWSSSORoleCredential {
+﻿function Get-AWSSSORoleCredential {
+    #Requires -Modules AWSPowerShell 
+    <#
+        .SYNOPSIS
+        This is a simple utility script that allows you to retrieve credentials for AWS accounts that are secured using AWS SSO.  
+        Access tokens are cached locally to prevent the need to be pushed to a web browser each time you invoke the script (this is similar behaviour to aws cli v2).
+        .DESCRIPTION
+        This is a simple utility script that allows you to retrieve credentials for AWS accounts that are secured using AWS SSO.  
+        Access tokens are cached locally to prevent the need to be pushed to a web browser each time you invoke the script (this is similar behaviour to aws cli v2).
+        Main usability enhancement compared to aws cli 2 is the abillity to retrieve all credentials for all accounts that you have access to.  
+        You can optionally specify a rolename with the -RoleName parameter and retrieve all credentials for that rolename across all of your accounts.
+        Alternatively you can specify an AccountID by using the -AccountID parameter and retrieve all credentials for that AccountID.
+
+        Region is set to US-East-1 by default as this is the only region that currently supports AWS SSO.
+        .PARAMETER StartUrl
+        The AWS SSO URL that you use to login. Example: https://mycompany.awsapps.com/start
+        .PARAMETER AccountId
+        Specify an AccountID to filter results to a specific account.
+        .PARAMETER RoleName
+        Specify a RoleName to filter results to a specific set of roles.
+        .PARAMETER PassThru
+        Returns AccountName, AccountId, RoleName, AccessKey, SecretKey, SessionToken, Expiration for all credentials based on filter.
+        Pair with -AccountId and -RoleName to select a single set of credentials.
+        .PARAMETER RefreshAccessToken
+        Use this switch to manually refresh access token. Usually not needed, but included due to some inconsistencies with AWS SSO.
+        .PARAMETER UseSharedCredentialsFile
+        Use this switch to save profiles to the AWS Credentials file configured in the global environment variable 'AWS_SHARED_CREDENTIALS_FILE'
+        .EXAMPLE
+        #Generate credential profile for all accounts and role names, auto save to credential file.
+        Get-AWSSSORoleCredential -StartUrl "https://mycompany.awsapps.com/start"
+        .EXAMPLE
+        #Generate credential profile for all accounts where role name is 'My_Role_Name', auto save to credential file.
+        Get-AWSSSORoleCredential -StartUrl "https://mycompany.awsapps.com/start" -RoleName 'My_Role_Name'
+        .EXAMPLE
+        #Get credentials for specific account and rolename, then use those to retrieve S3 bucket.
+        $RoleCredentials = Get-AWSSSORoleCredential -StartUrl "https://mycompany.awsapps.com/start" -AccountID 0123456789 -RoleName S3_Reader -Passthru
+        Get-S3Bucket -AccessKey $RoleCredentials.AccessKey -SecretKey $RoleCredentials.SecretKey -SessionToken $RoleCredentials.SessionToken
+        .EXAMPLE
+        #Generate credential profile for all accounts and role names, save to shared credentials file.
+        Get-AWSSSORoleCredential -StartUrl "https://mycompany.awsapps.com/start" -UseSharedCredentialFile
+        .INPUTS
+        StartUrl (Mandatory)
+        .OUTPUTS
+        Default Outputs:
+        ProfileName, StoreTypeName, ProfileLocation
+        PassThru Outputs:
+        AccountName, AccountId, RoleName, AccessKey, SecretKey, SessionToken, Expiration
+    #>
     [CmdletBinding()]
+
+
     param(
         [Parameter(Mandatory=$true)][string]$StartUrl,
         [string]$AccountId,
         [string]$RoleName,
-        [string]$ClientName = "default",
-        [ValidateSet('public')][string]$ClientType = "public",
-        [int]$TimeoutInSeconds = 60,
-        [string]$Path = (Join-Path $Home ".awsssohelper"),
-        [string]$Region,
         [switch]$PassThru,
         [switch]$RefreshAccessToken,
-        [switch]$GenerateProfiles,
-        [switch]$SaveToCredFile
-
+        [switch]$UseSharedCredentialsFile
     )
 
     Function get-epochDate ($epochDate) { [timezone]::CurrentTimeZone.ToLocalTime(([datetime]'1/1/1970').AddSeconds($epochDate)) }
-
-    if([string]::IsNullOrEmpty($Region)){
-        if (($null -eq (Get-DefaultAWSRegion).Region)) {
-            Write-Host "No region specified, using default region us-east-1." 
-            $Region = 'us-east-1'
-        }
-        else {
-            $Region = (Get-DefaultAWSRegion).Region
-        }
+    if(!($UseSharedCredentialsFile)){
+        $CredentialPath = Join-Path $(Join-path $Home -ChildPath ".aws") "credentials"
+    }else{
+        $CredentialPath = [Environment]::GetEnvironmentVariable('AWS_SHARED_CREDENTIALS_FILE')
     }
+    
+    # Required Defaults for OIDC Connection
+    $ClientName = "default"
+    $ClientType = "public"
+    
+    # Set a location to save AccessTokens
+    $Path = (Join-Path $Home ".awsssohelper")
+    
+    # Hardcoding region as only us-east-1 currently supports SSO OIDC connection.
+    $Region = 'us-east-1'
+
     $urlSubDomain = ([system.uri]$starturl).host.split('.')[0]
     $CachePath = Join-Path $Path $urlSubDomain
     if (!(Test-Path $Path)) {
@@ -66,8 +87,7 @@ function Get-AWSSSORoleCredential {
 
     if (!$AccessToken) {
         $RefreshAccessToken = $true
-    }
-    else{ 
+    }else{ 
         if($accesstoken.loggedat.gettype().name -eq 'DateTime'){
             if($(New-timespan $accesstoken.loggedat (get-date).ToUniversalTime()).totalseconds -gt $AccessToken.ExpiresIn) {
                 $RefreshAccessToken = $true
@@ -91,6 +111,8 @@ function Get-AWSSSORoleCredential {
         $Client = Register-SSOOIDCClient -ClientName $ClientName -ClientType $ClientType -Region $Region -Credential ([Amazon.Runtime.AnonymousAWSCredentials]::new())
         $DeviceAuth = Start-SSOOIDCDeviceAuthorization -ClientId $Client.ClientId -ClientSecret $Client.ClientSecret -StartUrl $StartUrl -Region $Region -Credential ([Amazon.Runtime.AnonymousAWSCredentials]::new()) 
 
+        $SSOStart = (Get-Date).ToUniversalTime()
+        $TimeoutInSeconds = $DeviceAuth.ExpiresIn
         try {
             $Process = Start-Process $DeviceAuth.VerificationUriComplete -PassThru
         }
@@ -105,7 +127,7 @@ function Get-AWSSSORoleCredential {
         
         Clear-Variable AccessToken -Force -ErrorAction SilentlyContinue
         Write-Host "Waiting for SSO login via browser..."
-        $SSOStart = (Get-Date).ToUniversalTime()
+        
         
         while (!$AccessToken -and ((New-TimeSpan $SSOStart (Get-Date).ToUniversalTime()).TotalSeconds -lt $TimeoutInSeconds)) {
             try {
@@ -153,24 +175,18 @@ function Get-AWSSSORoleCredential {
         }
            
     }
-    $output = $credentials
-    if($GenerateProfiles) {
-        $CredentialPath = Join-Path $(Join-path $Home -ChildPath ".aws") "credentials"
+    if ($PassThru) {
+        $output = $Credentials | Select-Object AccountName,AccountId,RoleName,AccessKey,SecretKey,SessionToken,Expiration | Sort-Object
+    }else{
+
         $Credentials | ForEach-Object {
-            if(!$SaveToCredFile){
-                Set-AWSCredential -AccessKey $_.AccessKey -SecretKey $_.SecretKey -SessionToken $_.SessionToken -StoreAs $($_.AccountName + '_' + $_.RoleName)
-            }else{
                 Set-AWSCredential -AccessKey $_.AccessKey -SecretKey $_.SecretKey -SessionToken $_.SessionToken -StoreAs $($_.AccountName + '_' + $_.RoleName) -ProfileLocation $CredentialPath
-            }
 
         }
         Write-host $Credentials.Count "AWS Credentials have been added to your credential store."
         $output = Get-AWSCredential -ListProfileDetail | Sort-Object -Property ProfileLocation,ProfileName
     }
 
-    if ($PassThru) {
-        $output = $Credentials | Select-Object @{N="ProfileName";E={$_.AccountName + '_' + $_.RoleName}},AccessKey,SecretKey,SessionToken | Sort-Object
-    }
     $output
 }
 Export-ModuleMember -Function Get-AWSSSORoleCredential
