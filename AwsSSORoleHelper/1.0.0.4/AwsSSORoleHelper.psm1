@@ -58,7 +58,14 @@
         [switch]$UseSharedCredentialsFile
     )
 
-    Function get-epochDate { [timezone]::CurrentTimeZone.ToUniversalTime([datetime]'1/1/1970') }
+    Function get-epochDate ($epochdate) {
+        if (("$epochdate").length -gt 10 ){
+                (Get-Date -Date "01/01/1970").AddMilliseconds($epochdate)
+        }
+        else {
+            (Get-Date -Date "01/01/1970").AddSeconds($epochdate)
+        }
+    }
     if(!($UseSharedCredentialsFile)){
         $CredentialPath = Join-Path $(Join-path $Home -ChildPath ".aws") "credentials"
     }else{
