@@ -58,7 +58,7 @@
         [switch]$UseSharedCredentialsFile
     )
 
-    Function get-epochDate ($epochdate) {
+    Function convertfrom-EpochTime ($epochdate) {
         if (("$epochdate").length -gt 10 ){
                 (Get-Date -Date "01/01/1970").AddMilliseconds($epochdate)
         }
@@ -100,7 +100,7 @@
                 $RefreshAccessToken = $true
             }
         }else{
-            if($(New-TimeSpan (get-epochDate $accesstoken.loggedat.split("(").split(")")[1]) (Get-Date).touniversaltime()).TotalSeconds -gt $AccessToken.ExpiresIn) {
+            if($(New-TimeSpan (ConvertFrom-EpochTime $accesstoken.loggedat.split("(").split(")")[1]) (Get-Date).touniversaltime()).TotalSeconds -gt $AccessToken.ExpiresIn) {
                 $RefreshAccessToken = $true
             }
         }
