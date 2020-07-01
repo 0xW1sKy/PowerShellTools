@@ -39,14 +39,14 @@ Function Start-HTTPListener {
         Start-HTTPListener -Port 8080 -Url cloudflared
         Open a web browser and go to: "http://localhost:8888/cloudflared?hostname=example.com&protocol=rdp"
     #>
-    
+
     Param (
         [Parameter()]
         [Int] $Port = 8888,
 
         [Parameter()]
         [String] $Url = "",
-        
+
         [Parameter()]
         [System.Net.AuthenticationSchemes] $Auth = [System.Net.AuthenticationSchemes]::IntegratedWindowsAuthentication
         )
@@ -66,7 +66,7 @@ Function Start-HTTPListener {
         $listener = New-Object System.Net.HttpListener
         $prefix = "http://*:$Port/$Url"
         $listener.Prefixes.Add($prefix)
-        $listener.AuthenticationSchemes = $Auth 
+        $listener.AuthenticationSchemes = $Auth
         try {
             $listener.Start()
             while ($true) {
@@ -88,7 +88,7 @@ Function Start-HTTPListener {
                     $identity = $context.User.Identity
                     Write-Verbose "Received request $(get-date) from $($identity.Name):"
                     $request | fl * | Out-String | Write-Verbose
-                
+
                     # only allow requests that are the same identity as the one who started the listener
                     if ($identity.Name -ne $CurrentPrincipal.Identity.Name) {
                         Write-Warning "Rejected request as user doesn't match current security principal of listener"
@@ -105,18 +105,28 @@ Function Start-HTTPListener {
                             $protocol = $request.QueryString.Item("protocol")
 
 
-                            #Find an open port
-                            $usedports = get-nettcpconnection | where { $_.state -eq 'Listen' } | select -ExpandProperty localport
-                            $dport = (9000..9100) | where {$usedports -notcontains $_} | select -first 1
-
-
-                            $durl = "localhost:$dport"
-
-                            Write-Verbose "Hostname = $hostname"
-                            Write-Verbose "Protocol = $protocol"
-                            Write-Verbose "URL = $durl"
-
-
+                            #Find an open local ip
+                            $iplist = Get-NetTCPConnection | where { $_.localaddress -like '127.*' } | select -ExpandProperty LocalAddress | sort | unique
+                            $ipfound = $false
+                            while (!($ipfound)) {
+                                $o1 = '127'
+                                $o2 = Get-Random -Minimum 1 -Maximum 254 # avoid use of 127.0.0.0/24
+                                $o3 = Get-Random -Minimum 0 -Maximum 254
+                                $o4 = Get-Random -Minimum 1 -Maximum 254 # avoid use of 127.x.x.0 or 127.x.x.255
+                                $testip = @($o1, $o2, $o3, $o4) | Join-String -Separator '.'
+                                if ($testip -notin $iplist) {
+                                    $linkip = $testip
+                                    $ipfound = $true
+                                    break
+                                }
+                            }
+                            # the above method could be used to allow the original domain name to work
+                            # with cloudflared if we set the DNS locally.
+                            switch ($protocol){
+                                    rdp {$dport = 3389 }
+                                    ssh {$dport = 22 }
+                                }
+                            $durl = "$linkip`:$dport"
                             try {
                                 $cloudflared = Start-Process -FilePath 'C:\cloudflared.exe' -ArgumentList "access $protocol --hostname $hostname --url $durl" -WindowStyle Hidden
                                 switch ($protocol){
@@ -124,14 +134,12 @@ Function Start-HTTPListener {
                                     ssh {Start-Process ssh -ArgumentList "$hostname -p $dport" }
                                 }
 
-
                             } catch {
                                 $commandOutput = "Error in URL Listener"
                                 $statusCode = 500
                             }
                         }
                         write-output $commandOutput | ConvertTo-JSON
-
                         }
                     }
                 }
@@ -149,7 +157,7 @@ Function Start-HTTPListener {
                 $output = $response.OutputStream
                 $output.Write($buffer,0,$buffer.Length)
                 $output.Close()
-            
+
         } catch {
             $listener.Stop()
         }
