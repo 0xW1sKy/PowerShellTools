@@ -1,9 +1,20 @@
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+if([IO.Path]::PathSeparator -eq ":"){
+  if( $(uname) -eq "Darwin"){
+    $env:hostname = $(hostname)
+  }
+}else{
+  $env:hostname = $env:computername
+}
+# Universal Time
+# (Get-Date).ToUniversalTime().ToString("o")
+
 function global:prompt {
   # Multiple Write-Host commands with color
+  Write-Host(Get-Date -UFormat '+%Y-%m-%d|%H:%M:%S') -nonewline -foregroundcolor Red
   Write-Host("[") -nonewline
-  Write-Host($env:computername) -nonewline -foregroundcolor Green
+  Write-Host($env:hostname) -nonewline -foregroundcolor Green
   Write-Host("] ") -nonewline
-  Write-Host("$(Split-Path $pwd -Leaf)/") -nonewline -foregroundcolor Blue
-  return " $`: "
+  Write-Host("$(Split-Path $pwd -Leaf)/") -foregroundcolor Blue
+  return "🔰`: "
 }
-Invoke-RestMethod -uri https://raw.githubusercontent.com/0xW1sKy/PowerShellTools/master/rebellogo | % { $_.split("`n") | % { Write-Host $_ -ForegroundColor red -BackgroundColor black; Start-Sleep .05 }}
